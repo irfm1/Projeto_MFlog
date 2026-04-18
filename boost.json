@@ -1,0 +1,12 @@
+{
+    "agents": [
+        "copilot"
+    ],
+    "skills": [
+        "laravel-best-practices",
+        "mcp-development",
+        "livewire-development",
+        "pest-testing",
+        "tailwindcss-development"
+    ]
+}
