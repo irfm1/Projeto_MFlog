@@ -29,6 +29,7 @@ class LogsTable extends Component
 
     // UI
     public ?int $selectedLogId = null;
+    private const MAX_LOG_POOL = 5000;
 
     public function mount(): void
     {
@@ -66,7 +67,7 @@ class LogsTable extends Component
     public function getLogs(): array
     {
         $logs = [];
-        $limit = max($this->perPage * 3, 50);
+        $limit = $this->resolvePoolLimitForPage();
 
         if (!$this->types || in_array('system', $this->types)) {
             $logs = array_merge($logs, $this->collectSystemLogs($limit));
@@ -87,7 +88,12 @@ class LogsTable extends Component
 
         // Paginação manual
         $totalItems = count($logs);
-        $totalPages = ceil($totalItems / $this->perPage);
+        $totalPages = max((int) ceil($totalItems / $this->perPage), 1);
+
+        if ($this->page > $totalPages) {
+            $this->page = $totalPages;
+        }
+
         $offset = ($this->page - 1) * $this->perPage;
 
         return array_slice($logs, $offset, $this->perPage);
@@ -100,7 +106,7 @@ class LogsTable extends Component
     public function getTotalLogs(): int
     {
         $logs = [];
-        $limit = 1000;
+        $limit = self::MAX_LOG_POOL;
 
         if (!$this->types || in_array('system', $this->types)) {
             $logs = array_merge($logs, $this->collectSystemLogs($limit));
@@ -123,7 +129,15 @@ class LogsTable extends Component
     #[Computed]
     public function getTotalPages(): int
     {
-        return ceil($this->getTotalLogs() / $this->perPage);
+        return max((int) ceil($this->getTotalLogs() / $this->perPage), 1);
+    }
+
+    private function resolvePoolLimitForPage(): int
+    {
+        // Garante volume suficiente para paginações mais altas sem estourar memória.
+        $base = ($this->page + 2) * $this->perPage;
+
+        return min(max($base, 200), self::MAX_LOG_POOL);
     }
 
     private function collectSystemLogs(int $limit): array

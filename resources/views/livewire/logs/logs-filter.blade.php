@@ -119,18 +119,26 @@
     <div class="border-t border-gray-200 dark:border-slate-700 pt-6 flex gap-3">
         <button 
             wire:click="resetFilters"
-            class="flex-1 px-4 py-2.5 bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-900 dark:text-white font-semibold rounded-lg transition-all"
+            class="w-full px-4 py-2.5 bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-900 dark:text-white font-semibold rounded-lg transition-all"
         >
             <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
             Limpar Filtros
         </button>
+    </div>
+
+    <!-- Operação ETL (separada dos filtros) -->
+    <div class="border-t border-gray-200 dark:border-slate-700 pt-6 space-y-3">
+        <div>
+            <p class="text-sm font-semibold text-gray-900 dark:text-slate-100">Operações ETL</p>
+            <p class="text-xs text-gray-600 dark:text-slate-400">Ação operacional separada dos filtros de visualização.</p>
+        </div>
         <button
             wire:click="runQuickFullLoad"
             wire:loading.attr="disabled"
             wire:target="runQuickFullLoad"
-            class="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all"
+            class="w-full px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all"
         >
             <span wire:loading.remove wire:target="runQuickFullLoad">Full Load (Hoje + Ontem)</span>
             <span wire:loading wire:target="runQuickFullLoad">Executando full load...</span>
