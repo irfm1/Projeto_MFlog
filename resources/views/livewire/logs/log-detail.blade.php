@@ -157,6 +157,9 @@
                                                 <div class="min-w-0">
                                                     <p class="text-sm font-semibold text-slate-900 dark:text-slate-100 break-words">{{ $item['nome'] }}</p>
                                                     <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ ucfirst(strtolower($item['tipo'])) }} · Qtd {{ number_format($item['quantidade'], 2, ',', '.') }}</p>
+                                                    @if(!empty($item['profissional']))
+                                                        <p class="mt-1 text-xs text-indigo-600 dark:text-indigo-300">Profissional: {{ $item['profissional'] }}</p>
+                                                    @endif
                                                 </div>
                                                 <p class="text-sm font-semibold font-mono text-slate-900 dark:text-slate-100 whitespace-nowrap">R$ {{ number_format($item['valor_total'], 2, ',', '.') }}</p>
                                             </div>

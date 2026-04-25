@@ -97,12 +97,14 @@ class LogDetail extends Component
                 ->get([
                     'tipo_item',
                     'nome_item',
+                    'profissional_nome',
                     'quantidade',
                     'valor_total',
                 ])
                 ->map(fn (object $item) => [
                     'tipo' => $this->normalizeUtf8((string) ($item->tipo_item ?? 'OUTRO')),
                     'nome' => $this->normalizeUtf8((string) ($item->nome_item ?? 'Item')),
+                    'profissional' => $this->normalizeUtf8((string) ($item->profissional_nome ?? '')),
                     'quantidade' => (float) ($item->quantidade ?? 0),
                     'valor_total' => (float) ($item->valor_total ?? 0),
                 ])

@@ -14,6 +14,7 @@ Route::view('/test-no-js', 'test-no-js')->name('test.no-js');
  * Dashboard de Logs - Livewire Interface (SIMPLIFIED)
  */
 Route::view('/logs', 'logs.index')->name('logs.dashboard');
+Route::view('/leads', 'leads.index')->name('leads.dashboard');
 
 /**
  * API de Logs - Broadcasting & Real-time Updates

@@ -242,14 +242,28 @@ class ETLService
         $ultimoIdSemItens = 0;
         while (true) {
             $querySemItens = DB::table('fato_logs_financeiro as f')
-                ->leftJoin('fato_venda_itens as i', 'i.log_financeiro_id', '=', 'f.log_financeiro_id')
                 ->where('f.tipo_movimento', 'CAIXA')
                 ->where('f.log_financeiro_id', '>', $ultimoIdSemItens)
                 ->whereNotNull('f.codigo_venda')
                 ->where('f.codigo_venda', '>', 0)
                 ->whereNotNull('f.codigo_log_firebird')
                 ->where('f.codigo_log_firebird', '>', 0)
-                ->whereNull('i.log_financeiro_id')
+                ->where(function ($q) {
+                    $q->whereNotExists(function ($sub) {
+                        $sub->select(DB::raw(1))
+                            ->from('fato_venda_itens as i')
+                            ->whereColumn('i.log_financeiro_id', 'f.log_financeiro_id');
+                    })->orWhereExists(function ($sub) {
+                        $sub->select(DB::raw(1))
+                            ->from('fato_venda_itens as i')
+                            ->whereColumn('i.log_financeiro_id', 'f.log_financeiro_id')
+                            ->where('i.tipo_item', 'SERVICO')
+                            ->where(function ($w) {
+                                $w->whereNull('i.profissional_nome')
+                                    ->orWhere('i.profissional_nome', '');
+                            });
+                    });
+                })
                 ->orderBy('f.log_financeiro_id')
                 ->limit($tamanhoLote)
                 ->get([
@@ -1043,14 +1057,20 @@ class ETLService
                 VI.CODIGO_ITEM,
                 VI.TIPO_PEDIDO,
                 VI.CODIGO_PEDIDO,
+                VI.CODIGO_TITULAR,
+                VI.CODIGO_ASSISTENTE,
                 VI.NOME_PEDIDO,
                 VI.QUANTIDADE,
                 VI.PRECO_TOTAL,
                 P.NOME AS PRODUTO_NOME,
-                S.NOME AS SERVICO_NOME
+                S.NOME AS SERVICO_NOME,
+                PT.NOME AS PROFISSIONAL_TITULAR,
+                PA.NOME AS PROFISSIONAL_ASSISTENTE
              FROM VENDAS_ITENS VI
              LEFT JOIN PRODUTOS P ON P.CODIGO = VI.CODIGO_PEDIDO
              LEFT JOIN SERVICOS S ON S.CODIGO = VI.CODIGO_PEDIDO
+             LEFT JOIN PROFISSIONAIS PT ON PT.CODIGO = VI.CODIGO_TITULAR
+             LEFT JOIN PROFISSIONAIS PA ON PA.CODIGO = VI.CODIGO_ASSISTENTE
              WHERE VI.CODIGO = ?
              ORDER BY VI.CODIGO_ITEM',
             [$codigoVenda]
@@ -1070,6 +1090,16 @@ class ETLService
                 return [
                     'codigo_item' => isset($item->CODIGO_ITEM) ? (int) $item->CODIGO_ITEM : null,
                     'codigo_item_catalogo' => isset($item->CODIGO_PEDIDO) ? (int) $item->CODIGO_PEDIDO : null,
+                    'codigo_profissional' => isset($item->CODIGO_TITULAR) && (int) $item->CODIGO_TITULAR > 0
+                        ? (int) $item->CODIGO_TITULAR
+                        : (isset($item->CODIGO_ASSISTENTE) && (int) $item->CODIGO_ASSISTENTE > 0
+                            ? (int) $item->CODIGO_ASSISTENTE
+                            : null),
+                    'profissional_nome' => $this->normalizarTextoFirebird(
+                        $item->PROFISSIONAL_TITULAR
+                            ?? $item->PROFISSIONAL_ASSISTENTE
+                            ?? null
+                    ),
                     'tipo_item' => $tipo,
                     'nome_item' => $this->normalizarTextoFirebird($nome),
                     'quantidade' => (float) ($item->QUANTIDADE ?? 1),
@@ -1134,6 +1164,10 @@ class ETLService
                     'codigo_venda' => (int) ($payload['codigo_venda'] ?? 0),
                     'codigo_item' => $item['codigo_item'],
                     'codigo_item_catalogo' => $item['codigo_item_catalogo'],
+                    'codigo_profissional' => $item['codigo_profissional'] ?? null,
+                    'profissional_nome' => !empty($item['profissional_nome'])
+                        ? mb_substr((string) $item['profissional_nome'], 0, 120)
+                        : null,
                     'tipo_item' => $item['tipo_item'],
                     'nome_item' => mb_substr((string) $item['nome_item'], 0, 255),
                     'quantidade' => (float) ($item['quantidade'] ?? 1),
