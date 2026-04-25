@@ -3,6 +3,7 @@
 namespace App\Livewire\Logs;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
 use Livewire\Component;
 
 /**
@@ -21,13 +22,13 @@ class LogsFilter extends Component
     public ?string $dateTo = null;
     public string $sortBy = 'timestamp';
     public string $sortOrder = 'desc';
+    public ?string $fullLoadMessage = null;
+    public ?string $fullLoadMessageType = null;
 
     public function mount(): void
     {
         // Padrão: últimos 30 dias
-        $today = Carbon::today();
-        $this->dateFrom = $today->subDays(30)->toDateString();
-        $this->dateTo = $today->toDateString();
+        $this->applyPeriodDays(30);
 
         $this->dispatchFiltersUpdated();
     }
@@ -44,29 +45,12 @@ class LogsFilter extends Component
      */
     public function setPeriod(string $period): void
     {
-        $today = Carbon::today();
-        
         match ($period) {
-            'today' => [
-                $this->dateFrom = $today->toDateString(),
-                $this->dateTo = $today->toDateString(),
-            ],
-            'last-7' => [
-                $this->dateFrom = $today->subDays(7)->toDateString(),
-                $this->dateTo = $today->toDateString(),
-            ],
-            'last-30' => [
-                $this->dateFrom = $today->subDays(30)->toDateString(),
-                $this->dateTo = $today->toDateString(),
-            ],
-            'last-60' => [
-                $this->dateFrom = $today->subDays(60)->toDateString(),
-                $this->dateTo = $today->toDateString(),
-            ],
-            'last-90' => [
-                $this->dateFrom = $today->subDays(90)->toDateString(),
-                $this->dateTo = $today->toDateString(),
-            ],
+            'today' => $this->applyPeriodDays(0),
+            'last-7' => $this->applyPeriodDays(7),
+            'last-30' => $this->applyPeriodDays(30),
+            'last-60' => $this->applyPeriodDays(60),
+            'last-90' => $this->applyPeriodDays(90),
             default => null,
         };
 
@@ -124,16 +108,49 @@ class LogsFilter extends Component
      */
     public function resetFilters(): void
     {
-        $today = Carbon::today();
         $this->types = null;
         $this->severities = null;
         $this->searchText = null;
-        $this->dateFrom = $today->subDays(30)->toDateString();
-        $this->dateTo = $today->toDateString();
+        $this->applyPeriodDays(30);
         $this->sortBy = 'timestamp';
         $this->sortOrder = 'desc';
 
         $this->dispatchFiltersUpdated();
+    }
+
+    /**
+     * Executa full load rápido para hoje e ontem (2 dias), sem migrations.
+     */
+    public function runQuickFullLoad(): void
+    {
+        $this->fullLoadMessage = null;
+        $this->fullLoadMessageType = null;
+
+        try {
+            Artisan::call('etl:full-load', [
+                '--no-migrate' => true,
+                '--days' => 2,
+            ]);
+
+            // Ajusta visualmente o filtro para hoje + ontem após recarga.
+            $today = Carbon::today();
+            $this->dateTo = $today->toDateString();
+            $this->dateFrom = $today->copy()->subDay()->toDateString();
+            $this->dispatchFiltersUpdated();
+
+            $this->fullLoadMessageType = 'success';
+            $this->fullLoadMessage = 'Full load de 2 dias concluído com sucesso.';
+        } catch (\Throwable $e) {
+            $this->fullLoadMessageType = 'error';
+            $this->fullLoadMessage = 'Erro no full load de 2 dias: ' . $e->getMessage();
+        }
+    }
+
+    private function applyPeriodDays(int $days): void
+    {
+        $today = Carbon::today();
+        $this->dateTo = $today->toDateString();
+        $this->dateFrom = $today->copy()->subDays($days)->toDateString();
     }
 
     private function dispatchFiltersUpdated(): void

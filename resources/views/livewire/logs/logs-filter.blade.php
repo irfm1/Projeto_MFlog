@@ -126,5 +126,20 @@
             </svg>
             Limpar Filtros
         </button>
+        <button
+            wire:click="runQuickFullLoad"
+            wire:loading.attr="disabled"
+            wire:target="runQuickFullLoad"
+            class="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all"
+        >
+            <span wire:loading.remove wire:target="runQuickFullLoad">Full Load (Hoje + Ontem)</span>
+            <span wire:loading wire:target="runQuickFullLoad">Executando full load...</span>
+        </button>
     </div>
+
+    @if($fullLoadMessage)
+        <div class="rounded-lg px-4 py-3 text-sm font-medium {{ $fullLoadMessageType === 'success' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300' }}">
+            {{ $fullLoadMessage }}
+        </div>
+    @endif
 </div>

@@ -34,8 +34,8 @@ class LogsTable extends Component
     {
         // Padrão: últimos 30 dias
         $today = Carbon::today();
-        $this->dateFrom = $today->subDays(30)->toDateString();
         $this->dateTo = $today->toDateString();
+        $this->dateFrom = $today->copy()->subDays(30)->toDateString();
     }
 
     /**
