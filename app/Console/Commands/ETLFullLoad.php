@@ -10,7 +10,8 @@ class ETLFullLoad extends Command
 {
     protected $signature = 'etl:full-load 
                           {--no-migrate : Não executar migrations}
-                          {--max-batches= : Limita batches por tabela para teste rápido}';
+                          {--max-batches= : Limita batches por tabela para teste rápido}
+                          {--days= : Carrega apenas os últimos N dias (ex: 7, 15, 30)}';
 
     protected $description = 'Carrega todo o histórico do Firebird → SQLite com Star Schema';
 
@@ -34,7 +35,21 @@ class ETLFullLoad extends Command
 
             $etl = new ETLService();
             $maxBatches = $this->option('max-batches');
-            $stats = $etl->fullLoad($maxBatches ? (int)$maxBatches : null);
+            $days = $this->option('days');
+
+            if ($days !== null && (!is_numeric($days) || (int) $days <= 0)) {
+                $this->error('❌ A opção --days deve ser um número inteiro maior que zero.');
+                return self::FAILURE;
+            }
+
+            if ($days !== null) {
+                $this->line("📅 Período selecionado: últimos {$days} dias");
+            }
+
+            $stats = $etl->fullLoad(
+                $maxBatches ? (int) $maxBatches : null,
+                $days !== null ? (int) $days : null
+            );
 
             $elapsed = round(microtime(true) - $startTime, 2);
 
@@ -46,7 +61,11 @@ class ETLFullLoad extends Command
                 [
                     ['dim_usuario', $stats['dim_usuario'] ?? 0],
                     ['dim_data', $stats['dim_data'] ?? 0],
+                    ['dim_modulo', $stats['dim_modulo'] ?? 0],
                     ['dim_tipo_operacao', $stats['dim_tipo_operacao'] ?? 0],
+                    ['dim_cliente', $stats['dim_cliente'] ?? 0],
+                    ['dim_profissional', $stats['dim_profissional'] ?? 0],
+                    ['dim_usuario_alvo', $stats['dim_usuario_alvo'] ?? 0],
                     ['fato_logs_sistema', $stats['fato_logs_sistema'] ?? 0],
                     ['fato_logs_financeiro', $stats['fato_logs_financeiro'] ?? 0],
                 ]

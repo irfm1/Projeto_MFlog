@@ -35,12 +35,18 @@ class ETLService
     /**
      * Carrega todo o histórico do Firebird → SQLite
      */
-    public function fullLoad(?int $maxBatches = null): array
+    public function fullLoad(?int $maxBatches = null, ?int $days = null): array
     {
+        $cutoffDate = $days !== null ? Carbon::now()->subDays($days)->startOfDay() : null;
+
         $stats = [
             'dim_usuario' => 0,
             'dim_data' => 0,
+            'dim_modulo' => 0,
             'dim_tipo_operacao' => 0,
+            'dim_cliente' => 0,
+            'dim_profissional' => 0,
+            'dim_usuario_alvo' => 0,
             'fato_logs_sistema' => 0,
             'fato_logs_financeiro' => 0,
         ];
@@ -54,16 +60,22 @@ class ETLService
 
         // 1. Carrega dimensões
         echo "📊 Carregando dimensões...\n";
-        $stats['dim_usuario'] = $this->carregarDimensaoUsuarios();
-        $stats['dim_data'] = $this->carregarDimensaoDatas();
-        $stats['dim_tipo_operacao'] = $this->carregarDimensaoTiposOperacao();
+        $stats['dim_usuario'] = $this->carregarDimensaoUsuarios($cutoffDate);
+        $stats['dim_data'] = $this->carregarDimensaoDatas($cutoffDate);
+        $stats['dim_tipo_operacao'] = $this->carregarDimensaoTiposOperacao($cutoffDate);
 
         // 2. Carrega fatos de logs
         echo "📝 Carregando logs do sistema...\n";
-        $stats['fato_logs_sistema'] = $this->carregarLogsSistema($maxBatches);
+        $stats['fato_logs_sistema'] = $this->carregarLogsSistema($maxBatches, $cutoffDate);
 
         echo "💳 Carregando logs financeiros...\n";
-        $stats['fato_logs_financeiro'] = $this->carregarLogsFinanceiros($maxBatches);
+        $stats['fato_logs_financeiro'] = $this->carregarLogsFinanceiros($maxBatches, $cutoffDate);
+
+        // Dimensões carregadas dinamicamente durante os fatos.
+        $stats['dim_modulo'] = DimModulo::count();
+        $stats['dim_cliente'] = DimCliente::count();
+        $stats['dim_profissional'] = DimProfissional::count();
+        $stats['dim_usuario_alvo'] = DimUsuarioAlvo::count();
 
         return $stats;
     }
@@ -285,14 +297,25 @@ class ETLService
     /**
      * Carrega dimensão de usuários
      */
-    private function carregarDimensaoUsuarios(): int
+    private function carregarDimensaoUsuarios(?Carbon $cutoffDate = null): int
     {
-        $usuarios = $this->firebird->select(
-            'SELECT DISTINCT L.CODIGO_USUARIO, U.NOME
-             FROM USUARIOS_LOG L
-             LEFT JOIN USUARIOS U ON U.CODIGO = L.CODIGO_USUARIO
-             ORDER BY L.CODIGO_USUARIO'
-        );
+        if ($cutoffDate) {
+            $usuarios = $this->firebird->select(
+                'SELECT DISTINCT L.CODIGO_USUARIO, U.NOME
+                 FROM USUARIOS_LOG L
+                 LEFT JOIN USUARIOS U ON U.CODIGO = L.CODIGO_USUARIO
+                 WHERE L.DATA >= CAST(? AS DATE)
+                 ORDER BY L.CODIGO_USUARIO',
+                [$cutoffDate->toDateString()]
+            );
+        } else {
+            $usuarios = $this->firebird->select(
+                'SELECT DISTINCT L.CODIGO_USUARIO, U.NOME
+                 FROM USUARIOS_LOG L
+                 LEFT JOIN USUARIOS U ON U.CODIGO = L.CODIGO_USUARIO
+                 ORDER BY L.CODIGO_USUARIO'
+            );
+        }
 
         $batch = [];
         foreach ($usuarios as $row) {
@@ -327,9 +350,11 @@ class ETLService
     /**
      * Carrega dimensão de datas (últimos 5 anos)
      */
-    private function carregarDimensaoDatas(): int
+    private function carregarDimensaoDatas(?Carbon $cutoffDate = null): int
     {
-        $dataInicio = Carbon::now()->subYears(5);
+        $dataInicio = $cutoffDate
+            ? $cutoffDate->copy()
+            : Carbon::now()->subYears(5);
         $dataFim = Carbon::now();
         $batch = [];
 
@@ -365,11 +390,21 @@ class ETLService
     /**
      * Carrega tipos de operação únicos dos logs
      */
-    private function carregarDimensaoTiposOperacao(): int
+    private function carregarDimensaoTiposOperacao(?Carbon $cutoffDate = null): int
     {
-        $tipos = $this->firebird->select(
-            'SELECT DISTINCT TIPO_OPERACAO FROM USUARIOS_LOG WHERE TIPO_OPERACAO IS NOT NULL'
-        );
+        if ($cutoffDate) {
+            $tipos = $this->firebird->select(
+                'SELECT DISTINCT TIPO_OPERACAO
+                 FROM USUARIOS_LOG
+                 WHERE TIPO_OPERACAO IS NOT NULL
+                   AND DATA >= CAST(? AS DATE)',
+                [$cutoffDate->toDateString()]
+            );
+        } else {
+            $tipos = $this->firebird->select(
+                'SELECT DISTINCT TIPO_OPERACAO FROM USUARIOS_LOG WHERE TIPO_OPERACAO IS NOT NULL'
+            );
+        }
 
         $batch = [];
         foreach ($tipos as $row) {
@@ -394,7 +429,7 @@ class ETLService
      * Carrega logs do sistema com paginação - OTIMIZADO COM CACHE DE DIMENSÕES
      * Estratégia simples: Pré-carrega tudo, usa lookups em memória
      */
-    private function carregarLogsSistema(?int $maxBatches = null): int
+    private function carregarLogsSistema(?int $maxBatches = null, ?Carbon $cutoffDate = null): int
     {
         $totalLinhasProcessadas = 0;
         $offset = 0;
@@ -410,8 +445,13 @@ class ETLService
 
         while ($iteracao < $maxIteracoes) {
             try {
-                $sql = "SELECT FIRST $limit SKIP $offset * FROM USUARIOS_LOG ORDER BY CODIGO DESC";
-                $logs = $this->firebird->select($sql);
+                if ($cutoffDate) {
+                    $sql = "SELECT FIRST $limit SKIP $offset * FROM USUARIOS_LOG WHERE DATA >= CAST(? AS DATE) ORDER BY CODIGO DESC";
+                    $logs = $this->firebird->select($sql, [$cutoffDate->toDateString()]);
+                } else {
+                    $sql = "SELECT FIRST $limit SKIP $offset * FROM USUARIOS_LOG ORDER BY CODIGO DESC";
+                    $logs = $this->firebird->select($sql);
+                }
 
                 if (empty($logs)) {
                     echo "\n✅ Fim dos registros";
@@ -525,7 +565,7 @@ class ETLService
      * Carrega logs financeiros com cache de dimensões
      * OTIMIZAÇÃO: Pré-carrega dimensões em memória
      */
-    private function carregarLogsFinanceiros(?int $maxBatches = null): int
+    private function carregarLogsFinanceiros(?int $maxBatches = null, ?Carbon $cutoffDate = null): int
     {
         $totalLinhasProcessadas = 0;
         $offset = 0;
@@ -541,9 +581,16 @@ class ETLService
 
         // LOG_CAIXA
         while ($iteracao < $maxIteracoes) {
-            $logs = $this->firebird->select(
-                "SELECT FIRST $limit SKIP $offset * FROM LOG_CAIXA ORDER BY DATA_HORA DESC"
-            );
+            if ($cutoffDate) {
+                $logs = $this->firebird->select(
+                    "SELECT FIRST $limit SKIP $offset * FROM LOG_CAIXA WHERE DATA_HORA >= CAST(? AS TIMESTAMP) ORDER BY DATA_HORA DESC",
+                    [$cutoffDate->format('Y-m-d H:i:s')]
+                );
+            } else {
+                $logs = $this->firebird->select(
+                    "SELECT FIRST $limit SKIP $offset * FROM LOG_CAIXA ORDER BY DATA_HORA DESC"
+                );
+            }
 
             if (empty($logs)) {
                 break;
@@ -594,6 +641,7 @@ class ETLService
                     $registro = [
                         'usuario_id' => $usuario->usuario_id,
                         'cliente_id' => $clienteId,
+                        'codigo_venda' => $codigoVenda,
                         'tipo_operacao_id' => $tipoOp->tipo_operacao_id,
                         'data_key' => $dimData->data_key,
                         'hora_evento' => $data->format('H:i:s'),
@@ -608,8 +656,6 @@ class ETLService
                     ];
 
                     if ($codigoVenda !== null) {
-                        $registro['codigo_venda'] = $codigoVenda;
-
                         $contextoVenda = $this->obterContextoVenda($codigoVenda);
                         $itensPorCodigoFirebird[$codigoLogFirebird] = [
                             'codigo_venda' => $codigoVenda,
@@ -642,9 +688,16 @@ class ETLService
         $offset = 0;
         $iteracao = 0;
         while ($iteracao < $maxIteracoes) {
-            $logs = $this->firebird->select(
-                "SELECT FIRST $limit SKIP $offset * FROM LOG_CANCELAMENTO ORDER BY DATA_HORA DESC"
-            );
+            if ($cutoffDate) {
+                $logs = $this->firebird->select(
+                    "SELECT FIRST $limit SKIP $offset * FROM LOG_CANCELAMENTO WHERE DATA_HORA >= CAST(? AS TIMESTAMP) ORDER BY DATA_HORA DESC",
+                    [$cutoffDate->format('Y-m-d H:i:s')]
+                );
+            } else {
+                $logs = $this->firebird->select(
+                    "SELECT FIRST $limit SKIP $offset * FROM LOG_CANCELAMENTO ORDER BY DATA_HORA DESC"
+                );
+            }
 
             if (empty($logs)) {
                 break;
@@ -814,11 +867,13 @@ class ETLService
                     $registro = [
                         'usuario_id' => $usuario->usuario_id,
                         'cliente_id' => $clienteId,
+                        'codigo_venda' => $codigoVenda,
                         'tipo_operacao_id' => $tipoOp->tipo_operacao_id,
                         'data_key' => $dimData->data_key,
                         'hora_evento' => $data->format('H:i:s'),
                         'tipo_movimento' => 'CAIXA',
                         'valor_movimento' => (float)($log->VALOR_MOVIMENTADO ?? 0),
+                        'valor_cancelamento' => 0,
                         'descricao' => substr($descricao, 0, 500),
                         'codigo_log_firebird' => $codigoLogFirebird,
                         'data_sincronizacao' => now(),
@@ -827,7 +882,6 @@ class ETLService
                     ];
 
                     if ($codigoVenda !== null) {
-                        $registro['codigo_venda'] = $codigoVenda;
                         $contextoVenda = $this->obterContextoVenda($codigoVenda);
                         $itensPorCodigoFirebird[$codigoLogFirebird] = [
                             'codigo_venda' => $codigoVenda,
